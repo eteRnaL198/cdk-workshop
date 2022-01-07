@@ -1,19 +1,44 @@
-import { Duration, Stack, StackProps } from 'aws-cdk-lib';
-import * as sns from 'aws-cdk-lib/aws-sns';
-import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cdk from 'aws-cdk-lib';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigw from 'aws-cdk-lib/aws-apigateway'
 import { Construct } from 'constructs';
+import { HitCounter } from './hitcounter';
+import { ViewPage } from './viewPage';
+import { TableViewer } from 'cdk-dynamo-table-viewer';
 
-export class CdkWorkshopStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+export class CdkWorkshopStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const queue = new sqs.Queue(this, 'CdkWorkshopQueue', {
-      visibilityTimeout: Duration.seconds(300)
-    });
+    // defines an AWS Lamdba resource
+    const hello = new lambda.Function(this, 'HelloHandler', {
+      runtime: lambda.Runtime.NODEJS_14_X,  // execution envinronment
+      code: lambda.Code.fromAsset('lambda'),  // code loaded from "lambda" directory
+      handler: 'hello.handler'  // file is "hello", function is "handler"
+    })
 
-    const topic = new sns.Topic(this, 'CdkWorkshopTopic');
+    const helloWithCounter = new HitCounter(this, 'HelloHitCounter', {
+      downstream: hello
+    })
 
-    topic.addSubscription(new subs.SqsSubscription(queue));
+    const viewPage = new ViewPage(this, 'ViewPage')
+
+    // defines an API Gateway REST API resource backed by our "hello" function.
+    new apigw.LambdaRestApi(this, 'Endpoint', {
+      // handler: helloWithCounter.handler
+      handler: viewPage.handler
+    })
+
+    new TableViewer(this, 'ViewHitCounter', {
+      title: 'Hello Hits',
+      table: helloWithCounter.table,
+      sortBy: '-hits',
+    })
+
   }
 }
+
+
+// Outputs:
+// CdkWorkshopStack.Endpoint8024A810 = https://7c9b1aktmj.execute-api.ap-northeast-1.amazonaws.com/prod/
+// CdkWorkshopStack.ViewHitCounterViewerEndpointCA1B1E4B = https://bvhhtt0ukd.execute-api.ap-northeast-1.amazonaws.com/prod/
